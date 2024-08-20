@@ -2,10 +2,6 @@ name: backup
 
 on:
   workflow_call:
-    inputs:
-      REPO_URL:
-        required: true
-        type: string
 
 permissions:
   id-token: write   # This is required for requesting the JWT
@@ -28,6 +24,9 @@ jobs:
         aws-region: eu-north-1
 
     - name: Sync repository to S3
+      env:
+        BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+        REPO_NAME: ${{ github.repository }}
       run: |
-        aws s3 sync . s3://${{secrets.S3_BUCKET_NAME}}/${{ inputs.REPO_URL }} --delete
+        aws s3 sync . s3://$BUCKET_NAME/$REPO_NAME --delete
 
