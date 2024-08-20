@@ -20,12 +20,12 @@ jobs:
     - name: configure aws credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-to-assume: ${{ secrets.ORG_AWS_BACKUP_ROLE_ARN }}
         aws-region: eu-north-1
 
     - name: Sync repository to S3
       env:
-        BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+        BUCKET_NAME: ${{ secrets.ORG_AWS_BACKUP_BUCKET_NAME }}
         REPO_NAME: ${{ github.repository }}
       run: |
         aws s3 sync . s3://$BUCKET_NAME/$REPO_NAME --delete
