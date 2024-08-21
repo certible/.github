@@ -1,0 +1,20 @@
+name: pull-protection
+
+on:
+    workflow_call:
+        inputs:
+            branch:
+                description: 'Allowed branch for pull requests'
+                required: true
+                default: 'staging'
+                type: string
+
+jobs:
+    check-branch:
+        runs-on: ubuntu-latest
+        steps:
+            -   name: Check if PR is from defined branch
+                if: github.head_ref != inputs.branch
+                run: |
+                    echo "Pull requests to ${{ github.ref }} are only allowed from the ${{inputs.branch}} branch."
+                    exit 1
