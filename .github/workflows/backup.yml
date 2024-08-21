@@ -28,6 +28,7 @@ jobs:
         BUCKET_NAME: ${{ secrets.ORG_AWS_BACKUP_BUCKET_NAME }}
         REPO_NAME: ${{ github.repository }}
       run: |
-        zip -r $REPO_NAME.zip .
+        SAFE_REPO_NAME=${REPO_NAME//\//_}
+        zip -r $SAFE_REPO_NAME.zip .
         aws s3 cp $REPO_NAME.zip s3://$BUCKET_NAME/$REPO_NAME/$(date +"%Y-%m-%d-%H-%M-%S").zip
 
