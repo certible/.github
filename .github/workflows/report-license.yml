@@ -15,7 +15,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        sparse-checkout: .
 
     - name: Use Node.js
       uses: actions/setup-node@v4
