@@ -1,0 +1,54 @@
+name: report-license
+
+on:
+  workflow_call:
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+    - run: npm install -g license-report
+
+    - name: Output license report
+      env:
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        license-report --output=csv --fields=name --fields=licenseType --fields=link --fields=relatedTo --relatedTo.value=$GITHUB_REPOSITORY > license-report.csv
+        cat license-report.csv
+    
+    - name: Validate allowed licenses
+      env:
+        ALLOWED_LICENSES: 'MIT|MIT-0|Apache-2.0|BSD-2-Clause|BSD-3-Clause|ISC'
+        IGNORED_LICENSES: 'SEE LICENSE IN LICENSE'
+      run: |
+        license-report --output=csv --fields=licenseType > licenses.csv
+        # Check if any of the licenses are ignored
+        if grep -qE "$IGNORED_LICENSES" licenses.csv; then
+          echo "Warning: Some licenses are ignored"
+          grep -vE "$IGNORED_LICENSES" licenses.csv > licenses_filtered.csv
+        else
+          cp licenses.csv licenses_filtered.csv
+        fi
+        # Check if any of the licenses are not allowed
+        if grep -vqE "$ALLOWED_LICENSES" licenses.csv; then
+          echo "Some licenses are not allowed"
+          exit 1
+        fi
+
+
+    
