@@ -8,7 +8,7 @@ permissions:
   contents: read    # This is required for actions/checkout
 
 jobs:
-  backup:
+  licenses:
     runs-on: ubuntu-latest
 
     steps:
