@@ -47,7 +47,7 @@ jobs:
           cp licenses.csv licenses_filtered.csv
         fi
         # Check if any of the licenses are not allowed
-        if grep -vqE "$ALLOWED_LICENSES" licenses.csv; then
+        if grep -vqE "$ALLOWED_LICENSES" licenses_filtered.csv; then
           echo "Some licenses are not allowed"
           exit 1
         fi
