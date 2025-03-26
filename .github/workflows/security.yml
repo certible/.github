@@ -1,0 +1,38 @@
+name: security-scan
+
+on:
+  workflow_call:
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Create Gitleaks config
+      run: |
+        cat > gitleaks.toml << 'EOL'
+        [extend]
+        useDefault = true
+        [[rules]]
+        id = "ignore-test-files"
+            [[rules.allowlists]]
+                paths = ['''test/.*''','''tests/.*''']
+        EOL
+
+    - name: Run Gitleaks
+      run: |
+        docker pull zricethezav/gitleaks:latest
+        docker run -v $(pwd):/path zricethezav/gitleaks:latest git /path --verbose --config="/path/gitleaks.toml"
+        if [ $? -eq 1 ]; then
+            echo "Gitleaks found potential secrets in your repository!"
+            exit 1
+        fi
