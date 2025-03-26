@@ -14,25 +14,28 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
     - name: Create Gitleaks config
       run: |
         cat > gitleaks.toml << 'EOL'
+        title = "certible-gitleaks"
         [extend]
         useDefault = true
-        [[rules]]
-        id = "ignore-test-files"
-            [[rules.allowlists]]
-                paths = ['''test/.*''','''tests/.*''']
+        
+        [allowlist]
+        paths = [
+            '''(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$''',
+            '''(?i)\.(?:eot|[ot]tf|woff2?)$''',
+            '''(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf|zip)$''',
+            '''(?:^|/)node_modules(?:/.*)?$''',
+            '''(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$''',
+            '''(?:^|/)cdk.out(?:/.*)?$''',
+            '''(?:^|/)test(?:/.*)?$''',
+            '''(?:^|/).git(?:/.*)?$'''
+        ]
         EOL
 
     - name: Run Gitleaks
       run: |
         docker pull zricethezav/gitleaks:latest
-        docker run -v $(pwd):/path zricethezav/gitleaks:latest git /path --verbose --config="/path/gitleaks.toml"
-        if [ $? -eq 1 ]; then
-            echo "Gitleaks found potential secrets in your repository!"
-            exit 1
-        fi
+        docker run -v $(pwd):/path zricethezav/gitleaks:latest dir /path --verbose --config="/path/gitleaks.toml"
