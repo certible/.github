@@ -14,7 +14,7 @@ Certible is an independent certification body headquartered in Vienna, Austria, 
 
 ### Our Mission
 
-We specialize in **international personnel certification** across numerous IT sectors, offering flexible examination solutions that adapt to your schedule and location through our global network of examiners and state-of-the-art technology.
+We specialize in **international personnel certification** across numerous sectors, offering flexible examination solutions that adapt to your schedule and location through our global network of examiners and state-of-the-art technology.
 
 ### What Sets Us Apart
 
