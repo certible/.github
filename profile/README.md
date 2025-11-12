@@ -10,7 +10,7 @@
 
 ## About Certible
 
-Certible is an independent certification body headquartered in Vienna, Austria, delivering professional IT certifications worldwide. With **20+ years of experience** in the certification industry, we provide comprehensive end-to-end certification infrastructure for candidates, training providers, and program owners.
+Certible is an independent certification body, delivering professional certifications worldwide. With **13+ years of experience** in the certification industry, we provide comprehensive end-to-end certification infrastructure for candidates, training providers, and program owners.
 
 ### Our Mission
 
