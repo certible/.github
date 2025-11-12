@@ -2,7 +2,7 @@
 
 **ISO/IEC 27001 | ISO 9001 | ISO 14001 Certified**
 
-*Trusted certification infrastructure for IT professionals worldwide*
+*Trusted certification infrastructure for professionals worldwide*
 
 [🔗 Website](https://www.certible.com) • [📋 Certifications](https://www.certible.com/certifications/?q=) • [📝 Register](https://www.certible.com/register) • [❓ FAQ](https://www.certible.com/faq/)
 
