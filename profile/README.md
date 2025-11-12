@@ -21,7 +21,7 @@ We specialize in **international personnel certification** across numerous secto
 - **Full-Service Provider**: We develop our own proprietary examination software and employ our dedicated team of professional invigilators
 - **ISO Certified**: Information Security (ISO/IEC 27001), Quality Management (ISO 9001), and Environmental Management (ISO 14001) by TÜV SÜD
 - **GDPR Compliant**: Externally audited for data protection and privacy compliance
-- **ISO/IEC 17024 Certified**: Our certification processes meet international standards for personnel certification
+- **ISO/IEC 17024 Compliant**: Our certification processes meet international standards for personnel certification
 - **Global Scalability**: Automated workflows supporting worldwide operations
 - **White-Label Solutions**: Comprehensive platform with API integrations for trainers and program owners
 
