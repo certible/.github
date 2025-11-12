@@ -23,7 +23,7 @@ We specialize in **international personnel certification** across numerous secto
 - **GDPR Compliant**: Externally audited for data protection and privacy compliance
 - **ISO/IEC 17024 Certified**: Our certification processes meet international standards for personnel certification
 - **Global Scalability**: Automated workflows supporting worldwide operations
-- **White-Label Solutions**: Comprehensive platform with API integrations for program owners
+- **White-Label Solutions**: Comprehensive platform with API integrations for trainers and program owners
 
 ---
 
