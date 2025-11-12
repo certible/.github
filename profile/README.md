@@ -27,7 +27,7 @@ We specialize in **international personnel certification** across numerous secto
 
 ---
 
-## Official Certification Body For
+## Official Certification Body and Exam Provider
 
 We are authorized to deliver certifications for leading international certification programs:
 
