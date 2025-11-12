@@ -113,7 +113,7 @@ Ready to advance your professional certification?
 
 ---
 
-**Certible GmbH** | Vienna, Austria 🇦🇹
+**Certible GmbH** | Vienna 
 
 Empowering IT professionals worldwide through trusted certification
 
