@@ -115,6 +115,6 @@ Ready to advance your professional certification?
 
 **Certible GmbH** | Vienna 
 
-Empowering IT professionals worldwide through trusted certification
+Empowering professionals worldwide through trusted certification
 
 [Website](https://www.certible.com) • [Privacy Policy](https://www.certible.com/PrivacyPolicy/) • [Imprint](https://www.certible.com/imprint/)
