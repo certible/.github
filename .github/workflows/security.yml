@@ -4,38 +4,39 @@ on:
   workflow_call:
 
 permissions:
-  id-token: write   # This is required for requesting the JWT
-  contents: read    # This is required for actions/checkout
+  id-token: write # This is required for requesting the JWT
+  contents: read # This is required for actions/checkout
 
 jobs:
   gitleaks:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v5
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
-    - name: Create Gitleaks config
-      run: |
-        cat > gitleaks.toml << 'EOL'
-        title = "certible-gitleaks"
-        [extend]
-        useDefault = true
-        
-        [allowlist]
-        paths = [
-            '''(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$''',
-            '''(?i)\.(?:eot|[ot]tf|woff2?)$''',
-            '''(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf|zip)$''',
-            '''(?:^|/)node_modules(?:/.*)?$''',
-            '''(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$''',
-            '''(?:^|/)cdk.out(?:/.*)?$''',
-            '''(?:^|/)test(?:/.*)?$''',
-            '''(?:^|/).git(?:/.*)?$'''
-        ]
-        EOL
+      - name: Create Gitleaks config
+        run: |
+          cat > gitleaks.toml << 'EOL'
+          title = "certible-gitleaks"
+          [extend]
+          useDefault = true
 
-    - name: Run Gitleaks
-      run: |
-        docker pull zricethezav/gitleaks:latest
-        docker run -v $(pwd):/path zricethezav/gitleaks:latest dir /path --verbose --config="/path/gitleaks.toml"
+          [allowlist]
+          paths = [
+              '''(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?)$''',
+              '''(?i)\.(?:eot|[ot]tf|woff2?)$''',
+              '''(?i)\.(?:docx?|xlsx?|pdf|bin|socket|vsidx|v2|suo|wsuo|.dll|pdb|exe|gltf|zip)$''',
+              '''(?:^|/)node_modules(?:/.*)?$''',
+              '''(?:^|/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$''',
+              '''(?:^|/)cdk.out(?:/.*)?$''',
+              '''(?:^|/)test(?:/.*)?$''',
+              '''(?:^|/).git(?:/.*)?$''',
+              '''(?:^|/)i18n/[^/]+\.json$'''
+          ]
+          EOL
+
+      - name: Run Gitleaks
+        run: |
+          docker pull zricethezav/gitleaks:latest
+          docker run -v $(pwd):/path zricethezav/gitleaks:latest dir /path --verbose --config="/path/gitleaks.toml"
