@@ -4,31 +4,31 @@ on:
   workflow_call:
 
 permissions:
-  id-token: write   # This is required for requesting the JWT
-  contents: read    # This is required for actions/checkout
+  id-token: write # This is required for requesting the JWT
+  contents: read # This is required for actions/checkout
 
 jobs:
   backup:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v5
-      with:
-        fetch-depth: 0
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-    - name: configure aws credentials
-      uses: aws-actions/configure-aws-credentials@v5
-      with:
-        role-to-assume: ${{ secrets.ORG_AWS_BACKUP_ROLE_ARN }}
-        aws-region: eu-north-1
+      - name: configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.ORG_AWS_BACKUP_ROLE_ARN }}
+          aws-region: eu-north-1
 
-    - name: Upload archive of repository to S3
-      env:
-        BUCKET_NAME: ${{ secrets.ORG_AWS_BACKUP_BUCKET_NAME }}
-        REPO_NAME: ${{ github.repository }}
-      run: |
-        SAFE_REPO_NAME=${REPO_NAME//\//_}
-        zip -r $SAFE_REPO_NAME.zip .
-        aws s3 cp $SAFE_REPO_NAME.zip s3://$BUCKET_NAME/$REPO_NAME/$(date +"%Y-%m-%d-%H-%M-%S").zip
-
+      - name: Upload archive of repository to S3
+        env:
+          BUCKET_NAME: ${{ secrets.ORG_AWS_BACKUP_BUCKET_NAME }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          SAFE_REPO_NAME=${REPO_NAME//\//_}
+          zip -r $SAFE_REPO_NAME.zip .
+          aws s3 cp $SAFE_REPO_NAME.zip s3://$BUCKET_NAME/$REPO_NAME/$(date +"%Y-%m-%d-%H-%M-%S").zip
+          aws s3 cp $SAFE_REPO_NAME.zip s3://$BUCKET_NAME/$REPO_NAME/latest.zip
