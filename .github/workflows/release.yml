@@ -4,61 +4,61 @@ on:
   workflow_call:
 
 permissions:
-  id-token: write   # This is required for requesting the JWT
+  id-token: write # This is required for requesting the JWT
   contents: write # to be able to publish a GitHub release
   issues: write # to be able to comment on released issues
   pull-requests: write # to be able to comment on released pull requests
 
 jobs:
-    release:
-        runs-on: ubuntu-latest
-        env: 
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v5
-              with:
-               fetch-depth: 0
-    
-            - name: Use Node.js
-              uses: actions/setup-node@v6
-              with:
-                node-version: "lts/*"
-            
-            - name: Install semantic-release and plugins
-              run: |
-                npm install -g semantic-release @semantic-release/commit-analyzer @semantic-release/release-notes-generator @semantic-release/github conventional-changelog-conventionalcommits
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-            - name: Create semantic-release config
-              run: |
-                cat > .releaserc.json << 'EOF'
+      - name: Use Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "lts/*"
+
+      - name: Install semantic-release and plugins
+        run: |
+          npm install -g semantic-release @semantic-release/commit-analyzer @semantic-release/release-notes-generator @semantic-release/github conventional-changelog-conventionalcommits
+
+      - name: Create semantic-release config
+        run: |
+          cat > .releaserc.json << 'EOF'
+          {
+            "branches": ["main"],
+            "plugins": [
+              [
+                "@semantic-release/commit-analyzer",
                 {
-                  "branches": ["main"],
-                  "plugins": [
-                    [
-                      "@semantic-release/commit-analyzer",
-                      {
-                        "preset": "conventionalcommits",
-                        "releaseRules": [
-                          { "breaking": true, "release": "major" },
-                          { "type": "feat", "release": "minor" },
-                          { "type": "fix", "release": "patch" },
-                          { "type": "perf", "release": "patch" }
-                        ]
-                      }
-                    ],
-                    [
-                      "@semantic-release/release-notes-generator",
-                      {
-                        "preset": "conventionalcommits"
-                      }
-                    ],
-                    "@semantic-release/github"
+                  "preset": "conventionalcommits",
+                  "releaseRules": [
+                    { "breaking": true, "release": "major" },
+                    { "type": "feat", "release": "minor" },
+                    { "type": "fix", "release": "patch" },
+                    { "type": "perf", "release": "patch" }
                   ]
                 }
-                EOF
+              ],
+              [
+                "@semantic-release/release-notes-generator",
+                {
+                  "preset": "conventionalcommits"
+                }
+              ],
+              "@semantic-release/github"
+            ]
+          }
+          EOF
 
-            - name: Generate Release Notes
-              run: |
-                npx semantic-release
+      - name: Generate Release Notes
+        run: |
+          npx semantic-release

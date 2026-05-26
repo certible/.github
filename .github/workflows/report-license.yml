@@ -4,53 +4,72 @@ on:
   workflow_call:
 
 permissions:
-  id-token: write   # This is required for requesting the JWT
-  contents: read    # This is required for actions/checkout
+  id-token: write # This is required for requesting the JWT
+  contents: read # This is required for actions/checkout
 
 jobs:
   licenses:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v5
-      with:
-        sparse-checkout: .
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .
 
-    - name: Use Node.js
-      uses: actions/setup-node@v6
-      with:
-        node-version: 20
-        cache: 'npm'
-    - run: |
-        npm ci
-        npm install -g license-report
+      - name: Detect package manager
+        id: package-manager
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            echo "manager=pnpm" >> "$GITHUB_OUTPUT"
+            echo "lockfile=pnpm-lock.yaml" >> "$GITHUB_OUTPUT"
+          elif [ -f package-lock.json ]; then
+            echo "manager=npm" >> "$GITHUB_OUTPUT"
+            echo "lockfile=package-lock.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "No supported lockfile found. Expected pnpm-lock.yaml or package-lock.json." >&2
+            exit 1
+          fi
 
-    - name: Output license report
-      env:
-        GITHUB_REPOSITORY: ${{ github.repository }}
-      run: |
-        license-report --output=csv --fields=name --fields=licenseType --fields=link --fields=relatedTo --relatedTo.value=$GITHUB_REPOSITORY > license-report.csv
-        cat license-report.csv
-    
-    - name: Validate allowed licenses
-      env:
-        ALLOWED_LICENSES: 'MIT|MIT-0|Apache-2.0|BSD-2-Clause|BSD-3-Clause|ISC|GPL-3.0|GPL-3.0-only|LGPL-3.0-only|(MPL-2.0 OR Apache-2.0)|MPL-2.0'
-        IGNORED_LICENSES: 'SEE LICENSE IN LICENSE'
-      run: |
-        license-report --output=csv --fields=licenseType > licenses.csv
-        # Check if any of the licenses are ignored
-        if grep -qE "$IGNORED_LICENSES" licenses.csv; then
-          echo "Warning: Some licenses are ignored"
-          grep -vE "$IGNORED_LICENSES" licenses.csv > licenses_filtered.csv
-        else
-          cp licenses.csv licenses_filtered.csv
-        fi
-        # Check if any of the licenses are not allowed
-        if grep -vqE "$ALLOWED_LICENSES" licenses_filtered.csv; then
-          echo "Some licenses are not allowed"
-          exit 1
-        fi
+      - name: Use Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: ${{ steps.package-manager.outputs.manager }}
+          cache-dependency-path: ${{ steps.package-manager.outputs.lockfile }}
 
+      - name: Install dependencies
+        run: |
+          if [ "${{ steps.package-manager.outputs.manager }}" = "pnpm" ]; then
+            corepack enable
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
+          npm install -g license-report
 
-    
+      - name: Output license report
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          license-report --output=csv --fields=name --fields=licenseType --fields=link --fields=relatedTo --relatedTo.value=$GITHUB_REPOSITORY > license-report.csv
+          cat license-report.csv
+
+      - name: Validate allowed licenses
+        env:
+          ALLOWED_LICENSES: "MIT|MIT-0|Apache-2.0|BSD-2-Clause|BSD-3-Clause|ISC|GPL-3.0|GPL-3.0-only|LGPL-3.0-only|(MPL-2.0 OR Apache-2.0)|MPL-2.0"
+          IGNORED_LICENSES: "SEE LICENSE IN LICENSE"
+        run: |
+          license-report --output=csv --fields=licenseType > licenses.csv
+          # Check if any of the licenses are ignored
+          if grep -qE "$IGNORED_LICENSES" licenses.csv; then
+            echo "Warning: Some licenses are ignored"
+            grep -vE "$IGNORED_LICENSES" licenses.csv > licenses_filtered.csv
+          else
+            cp licenses.csv licenses_filtered.csv
+          fi
+          # Check if any of the licenses are not allowed
+          if grep -vqE "$ALLOWED_LICENSES" licenses_filtered.csv; then
+            echo "Some licenses are not allowed"
+            exit 1
+          fi
