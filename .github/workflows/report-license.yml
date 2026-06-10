@@ -70,7 +70,7 @@ jobs:
           else
             npm ci
           fi
-          npm install -g license-report
+          npm install -g license-report --registry=https://registry.npmjs.org
 
       - name: Output license report
         env:
