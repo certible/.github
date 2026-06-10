@@ -31,6 +31,15 @@ jobs:
             exit 1
           fi
 
+      - name: Detect internal packages
+        id: internal-packages
+        run: |
+          if grep -q '@certible-internal/' "${{ steps.package-manager.outputs.lockfile }}" || grep -R --include package.json -q '@certible-internal/' .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Enable pnpm
         if: steps.package-manager.outputs.manager == 'pnpm'
         run: corepack enable
@@ -41,6 +50,17 @@ jobs:
           node-version: 22
           cache: ${{ steps.package-manager.outputs.manager }}
           cache-dependency-path: ${{ steps.package-manager.outputs.lockfile }}
+
+      - name: Configure AWS credentials
+        if: steps.internal-packages.outputs.found == 'true'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::847982363188:role/github-codeartifact-read
+          aws-region: eu-central-1
+
+      - name: Authenticate CodeArtifact
+        if: steps.internal-packages.outputs.found == 'true'
+        run: aws codeartifact login --tool npm --domain certible-internal --domain-owner 847982363188 --repository npm --region eu-central-1
 
       - name: Install dependencies
         run: |
