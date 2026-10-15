@@ -44,10 +44,20 @@ jobs:
         if: steps.package-manager.outputs.manager == 'pnpm'
         run: corepack enable
 
+      - name: Detect Node.js version source
+        id: node-version
+        run: |
+            if [ -f .tool-versions ] && grep -q '^nodejs ' .tool-versions; then
+              echo "file=.tool-versions" >> "$GITHUB_OUTPUT"
+            else
+              echo "version=lts/*" >> "$GITHUB_OUTPUT"
+            fi
+
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ steps.node-version.outputs.version }}
+          node-version-file: ${{ steps.node-version.outputs.file }}
           cache: ${{ steps.package-manager.outputs.manager }}
           cache-dependency-path: ${{ steps.package-manager.outputs.lockfile }}
 
