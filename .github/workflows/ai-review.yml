@@ -3,8 +3,8 @@ name: ai-review
 # Reusable workflow. Callers use:
 #   uses: certible/.github/.github/workflows/ai-review.yml@main
 #
-# Reviews a PR once when it is opened or marked ready for review.
-# Add the "ai-review" label to a PR to request a re-review.
+# Reviews a PR against auto_review_base once when it is opened or marked
+# ready for review. Add the "ai-review" label to any PR to request a review.
 
 on:
   workflow_call:
@@ -19,6 +19,11 @@ on:
         type: number
         required: false
         default: 20
+      auto_review_base:
+        description: "Base branch for automatic reviews. Empty = any base branch. The ai-review label works for any base branch."
+        type: string
+        required: false
+        default: "staging"
     secrets:
       ORG_ANTHROPIC_API_KEY:
         description: "API key from the Console org linked to the Claude Team plan (uses the monthly API credits)."
@@ -26,11 +31,15 @@ on:
 
 jobs:
   review:
-    # Skip drafts, bot PRs and labels other than "ai-review".
+    # Skip drafts and bot PRs. Run automatically only for PRs against
+    # auto_review_base; run on any PR when the "ai-review" label is added.
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.user.type != 'Bot' &&
-      (github.event.action != 'labeled' || github.event.label.name == 'ai-review')
+      (
+        (github.event.action == 'labeled' && github.event.label.name == 'ai-review') ||
+        (github.event.action != 'labeled' && (inputs.auto_review_base == '' || github.event.pull_request.base.ref == inputs.auto_review_base))
+      )
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout_minutes }}
 
