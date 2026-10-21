@@ -1,0 +1,80 @@
+name: ai-review
+
+# Reusable workflow. Callers use:
+#   uses: certible/.github/.github/workflows/ai-review.yml@main
+#
+# Reviews a PR once when it is opened or marked ready for review.
+# Add the "ai-review" label to a PR to request a re-review.
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: "Optional model override, e.g. claude-sonnet-5-5. Empty = Claude Code default."
+        type: string
+        required: false
+        default: ""
+      timeout_minutes:
+        description: "Hard stop for the job."
+        type: number
+        required: false
+        default: 20
+    secrets:
+      ANTHROPIC_API_KEY:
+        description: "API key from the Console org linked to the Claude Team plan (uses the monthly API credits)."
+        required: true
+
+jobs:
+  review:
+    # Skip drafts, bot PRs and labels other than "ai-review".
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.type != 'Bot' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'ai-review')
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+
+    # One review per PR at a time; a new run cancels the in-flight run.
+    concurrency:
+      group: ai-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    # Comments are posted with GITHUB_TOKEN (no Claude GitHub App needed),
+    # so pull-requests needs write. It also allows removing the label.
+    # The calling job must grant at least these permissions.
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+
+    steps:
+      # Remove the label so it can be added again for the next re-review.
+      - name: Remove ai-review label
+        if: github.event.action == 'labeled'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api -X DELETE "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/ai-review"
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          # --comment posts findings on the PR (inline comments, or one summary
+          # comment if nothing is found). Without it, output only goes to the run log.
+          # Repos may use AGENTS.md instead of CLAUDE.md for their rules.
+          # On a label re-review, the plugin must not stop because it already commented.
+          prompt: >-
+            /code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+            In every step, where a directory has no CLAUDE.md but has an AGENTS.md, use that AGENTS.md as its CLAUDE.md, and cite and link the AGENTS.md.
+            ${{ github.event.action == 'labeled' && 'Re-review requested with the ai-review label: ignore the "Claude has already commented on this PR" condition in step 1. Apply all other step 1 conditions.' || '' }}
+          # The inline-comment MCP tool must be allowed here, otherwise the action
+          # does not start the server that posts inline comments.
+          claude_args: >-
+            --allowedTools "mcp__github_inline_comment__create_inline_comment"
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
