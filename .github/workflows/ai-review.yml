@@ -68,7 +68,8 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: anthropics/claude-code-action@v1
+      - id: claude
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ORG_ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -89,3 +90,14 @@ jobs:
           claude_args: >-
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+
+      # The action hides Claude's output in the log. Keep the full transcript
+      # (tool calls, permission denials) as an artifact for debugging.
+      # Only use this workflow from private repos: artifacts of public repos are public.
+      - name: Upload Claude transcript
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: ai-review-transcript
+          path: ${{ steps.claude.outputs.execution_file }}
+          retention-days: 7
