@@ -82,8 +82,10 @@ jobs:
             /code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
             In every step, where a directory has no CLAUDE.md but has an AGENTS.md, use that AGENTS.md as its CLAUDE.md, and cite and link the AGENTS.md.
             ${{ github.event.action == 'labeled' && 'Re-review requested with the ai-review label: ignore the "Claude has already commented on this PR" condition in step 1. Apply all other step 1 conditions.' || '' }}
-          # The inline-comment MCP tool must be allowed here, otherwise the action
+          # Same tools as the plugin's allowed-tools frontmatter. Without them the
+          # gh calls are denied and the review ends without a comment.
+          # The inline-comment MCP tool must be listed, otherwise the action
           # does not start the server that posts inline comments.
           claude_args: >-
-            --allowedTools "mcp__github_inline_comment__create_inline_comment"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
