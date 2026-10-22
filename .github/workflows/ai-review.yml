@@ -24,6 +24,11 @@ on:
         type: string
         required: false
         default: "staging"
+      upload_transcript:
+        description: "Upload Claude's full transcript (tool calls, permission denials, unfiltered review notes) as an artifact for debugging."
+        type: boolean
+        required: false
+        default: true
     secrets:
       ORG_ANTHROPIC_API_KEY:
         description: "API key from the Console org linked to the Claude Team plan (uses the monthly API credits)."
@@ -93,9 +98,9 @@ jobs:
 
       # The action hides Claude's output in the log. Keep the full transcript
       # (tool calls, permission denials) as an artifact for debugging.
-      # Only use this workflow from private repos: artifacts of public repos are public.
+      # Public repos: the transcript also contains Claude's unfiltered review notes.
       - name: Upload Claude transcript
-        if: always() && steps.claude.outputs.execution_file != ''
+        if: always() && inputs.upload_transcript && steps.claude.outputs.execution_file != ''
         uses: actions/upload-artifact@v7
         with:
           name: ai-review-transcript
