@@ -8,7 +8,49 @@ permissions:
   contents: read # This is required for actions/checkout
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      deps: ${{ steps.diff.outputs.deps }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          filter: blob:none
+
+      - name: Detect dependency changes
+        id: diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          # Run the check unless a diff proves that no dependency file changed
+          deps=true
+          case "$EVENT_NAME" in
+            pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
+            push) base="$PUSH_BEFORE"; head="$PUSH_AFTER" ;;
+            *) base=""; head="" ;;
+          esac
+          if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ] \
+            && git fetch --no-tags --depth=1 --filter=blob:none origin "$base" "$head" \
+            && files=$(git diff --name-only "$base" "$head"); then
+            if printf '%s\n' "$files" | grep -qE '(^|/)(package\.json|package-lock\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$'; then
+              deps=true
+            else
+              deps=false
+            fi
+          fi
+          echo "Dependency files changed: $deps"
+          echo "deps=$deps" >> "$GITHUB_OUTPUT"
+
   licenses:
+    needs: changes
+    if: needs.changes.outputs.deps == 'true'
     runs-on: ubuntu-latest
 
     steps:
