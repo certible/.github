@@ -89,16 +89,24 @@ jobs:
           # comment if nothing is found). Without it, output only goes to the run log.
           # Repos may use AGENTS.md instead of CLAUDE.md for their rules.
           # On a label re-review, the plugin must not stop because it already commented.
+          # The plugin's "No issues found" comment hides what was not checked, so
+          # the comment must list the unverified items and the notes below the threshold.
+          # Compound commands and shell variables need approval, which CI cannot give.
           prompt: >-
             /code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
             In every step, where a directory has no CLAUDE.md but has an AGENTS.md, use that AGENTS.md as its CLAUDE.md, and cite and link the AGENTS.md.
+            In the final PR comment, also when no issues are found, add a "Not verified" section that lists the checks that were not done, and a "Below the threshold" section that lists the notes the agents did not flag, with one short line each. Omit an empty section.
+            Tell every agent: run one simple command per Bash call, with no pipes, no `;` or `&&`, and no shell variables, because other commands are denied.
             ${{ github.event.action == 'labeled' && 'Re-review requested with the ai-review label: ignore the "Claude has already commented on this PR" condition in step 1. Apply all other step 1 conditions.' || '' }}
           # Same tools as the plugin's allowed-tools frontmatter. Without them the
           # gh calls are denied and the review ends without a comment.
+          # Read-only git commands let the agents read files at the PR head.
+          # Do not allow node, python or Write: the PR content is untrusted, and
+          # the job holds the API key and a write token.
           # The inline-comment MCP tool must be listed, otherwise the action
           # does not start the server that posts inline comments.
           claude_args: >-
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git show:*),Bash(git ls-tree:*),Bash(git log:*),Bash(git diff:*)"
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
 
       # The action hides Claude's output in the log. Keep the full transcript
