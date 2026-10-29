@@ -5,15 +5,13 @@ name: ai-review
 #
 # Reviews a PR against auto_review_base once when it is opened or marked
 # ready for review. Add the "ai-review" label to any PR to request a review.
+#
+# The review runs in pi (https://pi.dev). Prompts, agents and scripts are in
+# ai-review/ in this repository.
 
 on:
   workflow_call:
     inputs:
-      model:
-        description: "Optional model override, e.g. claude-sonnet-5-5. Empty = Claude Code default."
-        type: string
-        required: false
-        default: ""
       timeout_minutes:
         description: "Hard stop for the job."
         type: number
@@ -25,14 +23,26 @@ on:
         required: false
         default: "staging"
       upload_transcript:
-        description: "Upload Claude's full transcript (tool calls, permission denials, unfiltered review notes) as an artifact for debugging."
+        description: "Upload the full pi transcript (tool calls, reviewer results, unfiltered notes) as an artifact for debugging. Private repos only; public repos never upload it."
         type: boolean
         required: false
         default: true
+      harness_ref:
+        description: "Ref of certible/.github to take the ai-review/ harness files from. Set it to the same ref as the uses: line when you test a branch."
+        type: string
+        required: false
+        default: "main"
     secrets:
       ORG_ANTHROPIC_API_KEY:
         description: "API key from the Console org linked to the Claude Team plan (uses the monthly API credits)."
         required: true
+
+# Fixed for all callers. Change the models here, not in the calling repos.
+env:
+  REVIEW_MODEL: claude-sonnet-5-5 # coordinator: runs the reviewers, verifies findings
+  REVIEWER_MODEL: claude-haiku-5-5 # the five reviewers
+  PI_VERSION: 1.4.0
+  PI_SUBAGENTS_VERSION: 0.22.0
 
 jobs:
   review:
@@ -53,69 +63,167 @@ jobs:
       group: ai-review-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true
 
-    # Comments are posted with GITHUB_TOKEN (no Claude GitHub App needed),
-    # so pull-requests needs write. It also allows removing the label.
-    # The calling job must grant at least these permissions.
+    # Comments are posted with GITHUB_TOKEN, so pull-requests needs write.
+    # It also allows removing the label. The calling job must grant at least
+    # these permissions.
     permissions:
       contents: read
       pull-requests: write
       issues: read
 
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    # Only the steps that need a secret get it. The pi step gets the API key
+    # but no GitHub token; the gh steps get the GitHub token but no API key.
     steps:
       # Remove the label so it can be added again for the next re-review.
       - name: Remove ai-review label
         if: github.event.action == 'labeled'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api -X DELETE "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/ai-review"
+        run: gh api -X DELETE "repos/$REPO/issues/$PR/labels/ai-review"
 
+      # The reviewers read files at the PR head. persist-credentials: false keeps
+      # the token out of .git/config, where the read tool could reach it.
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
+          persist-credentials: false
 
-      - id: claude
-        uses: anthropics/claude-code-action@v1
-        env:
-          # Run review subagents in the foreground. Otherwise Claude can start
-          # them in the background, end its turn, and the job stops before the
-          # review is posted.
-          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+      # The PR cannot change the harness: it comes from this repository and is
+      # moved out of the workspace.
+      - uses: actions/checkout@v6
         with:
-          anthropic_api_key: ${{ secrets.ORG_ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
-          plugins: "code-review@claude-code-plugins"
-          # --comment posts findings on the PR (inline comments, or one summary
-          # comment if nothing is found). Without it, output only goes to the run log.
-          # Repos may use AGENTS.md instead of CLAUDE.md for their rules.
-          # On a label re-review, the plugin must not stop because it already commented.
-          # The plugin's "No issues found" comment hides what was not checked, so
-          # the comment must list the unverified items and the notes below the threshold.
-          # Compound commands and shell variables need approval, which CI cannot give.
-          prompt: >-
-            /code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
-            In every step, where a directory has no CLAUDE.md but has an AGENTS.md, use that AGENTS.md as its CLAUDE.md, and cite and link the AGENTS.md.
-            In the final PR comment, also when no issues are found, add a "Not verified" section that lists the checks that were not done, and a "Below the threshold" section that lists the notes the agents did not flag, with one short line each. Omit an empty section.
-            Tell every agent: run one simple command per Bash call, with no pipes, no `;` or `&&`, and no shell variables, because other commands are denied.
-            ${{ github.event.action == 'labeled' && 'Re-review requested with the ai-review label: ignore the "Claude has already commented on this PR" condition in step 1. Apply all other step 1 conditions.' || '' }}
-          # Same tools as the plugin's allowed-tools frontmatter. Without them the
-          # gh calls are denied and the review ends without a comment.
-          # Read-only git commands let the agents read files at the PR head.
-          # Do not allow node, python or Write: the PR content is untrusted, and
-          # the job holds the API key and a write token.
-          # The inline-comment MCP tool must be listed, otherwise the action
-          # does not start the server that posts inline comments.
-          claude_args: >-
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git show:*),Bash(git ls-tree:*),Bash(git log:*),Bash(git diff:*)"
-            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+          repository: certible/.github
+          ref: ${{ inputs.harness_ref }}
+          path: .ai-review-harness
+          sparse-checkout: ai-review
+          persist-credentials: false
 
-      # The action hides Claude's output in the log. Keep the full transcript
-      # (tool calls, permission denials) as an artifact for debugging.
-      # Public repos: the transcript also contains Claude's unfiltered review notes.
-      - name: Upload Claude transcript
-        if: always() && inputs.upload_transcript && steps.claude.outputs.execution_file != ''
+      - name: Move harness out of the workspace
+        run: |
+          mv .ai-review-harness/ai-review "$RUNNER_TEMP/harness"
+          rm -rf .ai-review-harness
+          mkdir -p "$RUNNER_TEMP/ctx" "$RUNNER_TEMP/out"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # Fetch all GitHub context in advance, so the agents need no gh, no bash
+      # and no token. gh pr diff is the diff that GitHub shows, so the inline
+      # comment lines match it.
+      - name: Fetch PR context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ctx="$RUNNER_TEMP/ctx"
+          gh pr view "$PR" -R "$REPO" --json title,body,labels,author,baseRefName,headRefName > "$ctx/pr.json"
+          gh pr view "$PR" -R "$REPO" --json closingIssuesReferences --jq '.closingIssuesReferences[].url' \
+            | while read -r url; do gh issue view "$url" --json number,title,body,url; done \
+            | jq -s . > "$ctx/issues.json"
+          gh api --paginate "repos/$REPO/pulls/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- ai-review -->"))) | {path, line, body}' \
+            | jq -s . > "$ctx/previous-review.json"
+          gh pr diff "$PR" -R "$REPO" > "$ctx/raw.diff"
+          awk -f "$RUNNER_TEMP/harness/number-diff.awk" "$ctx/raw.diff" > "$ctx/pr.diff"
+          echo "diff: $(wc -l < "$ctx/raw.diff") lines, issues: $(jq length "$ctx/issues.json"), earlier AI comments: $(jq length "$ctx/previous-review.json")"
+
+      # Packages and agents go to the agent dir, not to the repo's .pi/.
+      # pi runs with --no-approve, so a .pi/ directory in the PR is ignored.
+      - name: Install pi
+        env:
+          PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
+        run: |
+          npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@$PI_VERSION"
+          pi install "npm:@tintinweb/pi-subagents@$PI_SUBAGENTS_VERSION"
+          mkdir -p "$PI_CODING_AGENT_DIR/agents"
+          for f in "$RUNNER_TEMP"/harness/agents/*.md; do
+            sed -e "s|__REVIEWER_MODEL__|anthropic/$REVIEWER_MODEL|" -e "s|__CTX__|$RUNNER_TEMP/ctx|g" "$f" \
+              > "$PI_CODING_AGENT_DIR/agents/$(basename "$f")"
+          done
+          sed "s|__CTX__|$RUNNER_TEMP/ctx|g" "$RUNNER_TEMP/harness/review.md" > "$RUNNER_TEMP/prompt.md"
+
+      # pi exits 0 also when the API call fails (for example a billing error),
+      # so the step checks stopReason of the last message.
+      - name: Run review
+        id: pi
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ORG_ANTHROPIC_API_KEY }}
+          PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
+          PI_SKIP_VERSION_CHECK: "1"
+          NODE_NO_WARNINGS: "1"
+        run: |
+          out="$RUNNER_TEMP/out"
+          echo "transcript=$out/events.jsonl" >> "$GITHUB_OUTPUT"
+          pi --mode json --no-approve --no-session --no-mcp \
+            --model "anthropic/$REVIEW_MODEL" \
+            --tools read,grep,find,ls,Agent \
+            "$(cat "$RUNNER_TEMP/prompt.md")" > "$out/events.jsonl" 2> "$out/stderr.log" \
+            || { cat "$out/stderr.log"; exit 1; }
+          cat "$out/stderr.log"
+          # pi-subagents skips an agent file with invalid frontmatter and only warns.
+          if grep -q "Skipping agent file" "$out/stderr.log"; then
+            echo "::error::pi-subagents skipped a reviewer agent file"
+            exit 1
+          fi
+          jq -c 'select(.type == "message_end" and .message.role == "assistant") | .message' "$out/events.jsonl" | tail -n 1 > "$out/last.json"
+          if [ "$(jq -r .stopReason "$out/last.json")" != "stop" ]; then
+            echo "::error::pi stopped with $(jq -r '.stopReason + ": " + (.errorMessage // "")' "$out/last.json")"
+            exit 1
+          fi
+          jq -r '[.content[] | select(.type == "text") | .text] | join("")' "$out/last.json" > "$out/result.txt"
+          cost=$(jq -s '[.[] | select(.type == "message_end" and .message.role == "assistant") | .message.usage.cost.total // 0] | add // 0' "$out/events.jsonl")
+          echo "coordinator cost: \$$cost (reviewers not included)"
+
+      - name: Build review
+        env:
+          MODEL: ${{ env.REVIEW_MODEL }} + ${{ env.REVIEWER_MODEL }}
+        run: |
+          node "$RUNNER_TEMP/harness/post-review.mjs" "$RUNNER_TEMP/out/result.txt" "$RUNNER_TEMP/ctx/raw.diff" "$RUNNER_TEMP/out"
+
+      # GitHub rejects the whole review when one inline comment is invalid.
+      # Then post everything as one PR comment.
+      - name: Post review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X POST "repos/$REPO/pulls/$PR/reviews" --input "$RUNNER_TEMP/out/review.json" > /dev/null \
+            || gh pr comment "$PR" -R "$REPO" --body-file "$RUNNER_TEMP/out/fallback.md"
+
+      - name: Report failure on the PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment "$PR" -R "$REPO" --body "<!-- ai-review -->
+          AI review failed. See the [run log]($RUN_URL). Add the \`ai-review\` label to retry."
+
+      # The read tool accepts absolute paths, so a prompt injection could make
+      # an agent read the API key (for example from /proc/self/environ) into the
+      # transcript. Remove the key before the upload.
+      - name: Redact transcript
+        if: always() && inputs.upload_transcript && github.event.repository.private && steps.pi.outputs.transcript != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ORG_ANTHROPIC_API_KEY }}
+        run: |
+          find "$RUNNER_TEMP/out" "$RUNNER_TEMP/ctx" -type f -exec \
+            perl -pi -e 's/\Q$ENV{ANTHROPIC_API_KEY}\E/[redacted]/g; s/sk-ant-[A-Za-z0-9_-]+/[redacted]/g' {} +
+
+      # Private repos only. On a public repo, anyone signed in to GitHub can
+      # download artifacts, and the transcript contains the unfiltered review
+      # notes and the full diff and context.
+      - name: Upload transcript
+        if: always() && inputs.upload_transcript && github.event.repository.private && steps.pi.outputs.transcript != ''
         uses: actions/upload-artifact@v7
         with:
           name: ai-review-transcript
-          path: ${{ steps.claude.outputs.execution_file }}
+          path: |
+            ${{ runner.temp }}/out
+            ${{ runner.temp }}/ctx
           retention-days: 7
