@@ -9,8 +9,8 @@ name: deploy-order
 # name dependencies in its description:
 #   Depends-On: certible/<repo>#<n>
 #   Depends-On: https://github.com/certible/<repo>/pull/<n>
-# The check fails until each referenced PR is in the default branch of its
-# repo. Rule for developers and agents: agents/pull-requests.md in certible/misc.
+# The check fails until each referenced PR is in main of its repo (or in the
+# default branch, when the repo has no main). Rule for developers and agents: agents/pull-requests.md in certible/misc.
 
 on:
   workflow_call:
@@ -102,12 +102,18 @@ jobs:
                   continue
                 fi
               fi
-              default=$(gh api "repos/$dep_repo" --jq .default_branch)
-              status=$(gh api "repos/$dep_repo/compare/$sha...$default" --jq .status)
-              if [ "$status" = "identical" ] || [ "$status" = "ahead" ]; then
-                rows+="| #$f | $dep_repo#$dep_pr | ok (in $default) |"$'\n'
+              # main is prod. Some repos have another default branch (for
+              # example staging), so do not use the default branch first.
+              if gh api "repos/$dep_repo/branches/main" --silent 2>/dev/null; then
+                prod=main
               else
-                rows+="| #$f | $dep_repo#$dep_pr | not in $default yet |"$'\n'
+                prod=$(gh api "repos/$dep_repo" --jq .default_branch)
+              fi
+              status=$(gh api "repos/$dep_repo/compare/$sha...$prod" --jq .status)
+              if [ "$status" = "identical" ] || [ "$status" = "ahead" ]; then
+                rows+="| #$f | $dep_repo#$dep_pr | ok (in $prod) |"$'\n'
+              else
+                rows+="| #$f | $dep_repo#$dep_pr | not in $prod yet |"$'\n'
                 failed=1
               fi
             done <<<"$refs"
@@ -124,7 +130,7 @@ jobs:
             fi
             if [ "$failed" = 1 ]; then
               echo
-              echo "Deploy the missing PRs to their default branch first, then re-run this check."
+              echo "Deploy the missing PRs to main first, then re-run this check."
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
