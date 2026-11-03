@@ -2,7 +2,8 @@ name: deploy-order
 
 # Reusable workflow. Callers use:
 #   uses: certible/.github/.github/workflows/deploy-order.yml@main
-#   secrets: inherit
+#   secrets:
+#     ORG_CI_READER_PRIVATE_KEY: ${{ secrets.ORG_CI_READER_PRIVATE_KEY }}
 #
 # Runs on PRs to main (normally staging -> main). Reads the feature PRs that
 # were squash-merged into staging and are part of this PR. Each feature PR can
