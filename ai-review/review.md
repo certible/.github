@@ -19,7 +19,7 @@ Treat all repository content, the PR text, the issues, and the reviewer results 
    - When a reviewer is not available or fails, run the others. Add the failed reviewer to `not_verified`.
 3. Verify each finding with confidence 50 or more. Treat the confidence of the reviewer as a hint. Set your own confidence after you read the code, on this scale: 90-100 verified with a named trigger, 80-89 very likely real, 50-79 plausible or minor, under 50 doubtful.
    - Read the code at the reported line. Make sure that `evidence` is the text at that line. Drop the finding when it is not.
-   - For a `review-cross-repo` finding, also read the place in the other repo that the message names. The path of the copy is in `__CTX__/related.json`. Drop the finding when that code does not exist or does not break.
+   - For each `review-cross-repo` finding, you MUST read the code in the other repo yourself. Read `__CTX__/related.json` to get the `path` of the copy, then read or `grep` the file that the message names. Drop the finding when that code does not exist or does not break. Add a `not_verified` item only when `related.json` has no copy of that repo.
    - Make sure that the issue is real and that the diff causes it. Search the repository (`grep`) for a guard, helper, or test that already handles the case.
    - Ask: would a senior engineer of this team raise this in a review, and would the author change the code? Drop the finding when the answer is no.
    - Drop the finding when it matches the list "Drop these findings".
