@@ -2,6 +2,9 @@ name: ai-review
 
 # Reusable workflow. Callers use:
 #   uses: certible/.github/.github/workflows/ai-review.yml@main
+#   secrets:
+#     ORG_ANTHROPIC_API_KEY: ${{ secrets.ORG_ANTHROPIC_API_KEY }}
+#     ORG_CI_READER_PRIVATE_KEY: ${{ secrets.ORG_CI_READER_PRIVATE_KEY }} # optional: related repos for review-cross-repo
 #
 # Reviews a PR against auto_review_base once when it is opened or marked
 # ready for review. Add the "ai-review" label to any PR to request a review.
@@ -36,11 +39,14 @@ on:
       ORG_ANTHROPIC_API_KEY:
         description: "API key from the Console org linked to the Claude Team plan (uses the monthly API credits)."
         required: true
+      ORG_CI_READER_PRIVATE_KEY:
+        description: "Private key of the certible-ci-reader GitHub App. Without it, the cross-repo reviewer gets no related repos."
+        required: false
 
 # Fixed for all callers. Change the models here, not in the calling repos.
 env:
   REVIEW_MODEL: claude-sonnet-5-5 # coordinator: runs the reviewers, verifies findings
-  REVIEWER_MODEL: claude-haiku-5-5 # the five reviewers
+  REVIEWER_MODEL: claude-haiku-5-5 # the six reviewers
   PI_VERSION: 1.4.0
   PI_SUBAGENTS_VERSION: 0.22.0
 
@@ -76,6 +82,7 @@ jobs:
       REPO: ${{ github.repository }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      HAS_READER_KEY: ${{ secrets.ORG_CI_READER_PRIVATE_KEY != '' }}
 
     # Only the steps that need a secret get it. The pi step gets the API key
     # but no GitHub token; the gh steps get the GitHub token but no API key.
@@ -133,6 +140,91 @@ jobs:
           gh pr diff "$PR" -R "$REPO" > "$ctx/raw.diff"
           awk -f "$RUNNER_TEMP/harness/number-diff.awk" "$ctx/raw.diff" > "$ctx/pr.diff"
           echo "diff: $(wc -l < "$ctx/raw.diff") lines, issues: $(jq length "$ctx/issues.json"), earlier AI comments: $(jq length "$ctx/previous-review.json")"
+
+      # Cross-repo context for review-cross-repo: the repos in the Depends-On and
+      # Related lines of the PR description. Only on private repos, because a
+      # review on a public PR must not quote code from private repos.
+      - name: Get CI reader token
+        id: app
+        if: github.event.repository.private && env.HAS_READER_KEY == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.ORG_CI_READER_CLIENT_ID }}
+          private-key: ${{ secrets.ORG_CI_READER_PRIVATE_KEY }}
+          owner: certible
+          permission-contents: read
+          permission-pull-requests: read
+
+      # Writes ctx/related.json in all cases, so the reviewer knows why a repo is
+      # missing. Each repo goes to $RUNNER_TEMP/related/<repo> without .git and
+      # without credentials. A failed repo is noted, not fatal.
+      - name: Fetch cross-repo context
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          ctx="$RUNNER_TEMP/ctx"
+          rel="$RUNNER_TEMP/related"
+          mkdir -p "$rel" "$ctx/related-diffs"
+          max=3
+
+          # "<kind> <repo> <pr or empty>" for each Depends-On and Related line.
+          refs=$(jq -r '.body // ""' "$ctx/pr.json" | perl -0pe 's/<!--.*?-->//gs' | perl -ne '
+            next unless /^\s*(Depends-On|Related):\s*(\S+)/i;
+            my ($k, $v) = (lc $1, $2);
+            if ($v =~ m{^(?:https://github\.com/)?certible/([A-Za-z0-9._-]+?)(?:#(\d+)|/pull/(\d+))?/?$}) {
+              print "$k $1 ", ($2 // $3 // ""), "\n";
+            }')
+
+          entries=()
+          notes=()
+          seen=" ${REPO#certible/} "
+          add() { entries+=("$(jq -cn --arg kind "$1" --arg repo "certible/$2" --arg pr "$3" --arg ref "$4" --arg path "$5" --arg diff "$6" --arg error "$7" \
+            '{kind: $kind, repo: $repo, pr: $pr, ref: $ref, path: $path, diff: $diff, error: $error}')"); }
+
+          # Q16: open PR -> its head; merged PR or bare repo -> staging, else the default branch.
+          fetch_one() {
+            local kind=$1 repo=$2 pr=$3 sha="" ref="" branch dest diff="" auth
+            if [ -n "$pr" ]; then
+              local state
+              state=$(gh api "repos/certible/$repo/pulls/$pr" --jq '.state + " " + .head.sha') || return 1
+              if [ "${state%% *}" = open ]; then sha=${state#* }; ref="PR #$pr head"; fi
+              # Not "| head": with pipefail, SIGPIPE would fail a large diff.
+              diff="$ctx/related-diffs/$repo-$pr.diff"
+              gh pr diff "$pr" -R "certible/$repo" > "$diff.full" || return 1
+              head -n 5000 "$diff.full" > "$diff"
+              rm "$diff.full"
+            fi
+            if [ -z "$sha" ]; then
+              if gh api "repos/certible/$repo/branches/staging" --silent 2>/dev/null; then branch=staging
+              else branch=$(gh api "repos/certible/$repo" --jq .default_branch) || return 1; fi
+              sha=$(gh api "repos/certible/$repo/commits/$branch" --jq .sha) || return 1
+              ref=$branch
+            fi
+            dest="$rel/$repo"
+            auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+            echo "::add-mask::$auth"
+            git init -q "$dest" || return 1
+            git -C "$dest" -c credential.helper= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+              fetch -q --depth 1 "https://github.com/certible/$repo" "$sha" || return 1
+            git -C "$dest" checkout -q FETCH_HEAD || return 1
+            rm -rf "$dest/.git"
+            add "$kind" "$repo" "$pr" "$ref ($sha)" "$dest" "$diff" ""
+          }
+
+          while read -r kind repo pr; do
+            [ -z "$kind" ] && continue
+            case "$seen" in *" $repo "*) continue ;; esac
+            seen+="$repo "
+            if [ "${#entries[@]}" -ge "$max" ]; then notes+=("More than $max related repos. Skipped certible/$repo."); continue; fi
+            if [ "$PRIVATE" != true ]; then notes+=("Public repo: no related repos fetched."); break; fi
+            if [ -z "$GH_TOKEN" ]; then notes+=("No ORG_CI_READER_PRIVATE_KEY: no related repos fetched."); break; fi
+            fetch_one "$kind" "$repo" "$pr" || add "$kind" "$repo" "$pr" "" "" "" "could not fetch"
+          done <<<"$refs"
+
+          printf '%s\n' "${entries[@]}" | jq -s --args '{related: map(select(. != null)), notes: $ARGS.positional}' "${notes[@]}" > "$ctx/related.json"
+          jq -c '{related: [.related[] | {kind, repo, ref, error}], notes}' "$ctx/related.json"
 
       # Packages and agents go to the agent dir, not to the repo's .pi/.
       # pi runs with --no-approve, so a .pi/ directory in the PR is ignored.
@@ -213,7 +305,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ORG_ANTHROPIC_API_KEY }}
         run: |
           find "$RUNNER_TEMP/out" "$RUNNER_TEMP/ctx" -type f -exec \
-            perl -pi -e 's/\Q$ENV{ANTHROPIC_API_KEY}\E/[redacted]/g; s/sk-ant-[A-Za-z0-9_-]+/[redacted]/g' {} +
+            perl -pi -e 's/\Q$ENV{ANTHROPIC_API_KEY}\E/[redacted]/g; s/sk-ant-[A-Za-z0-9_-]+/[redacted]/g; s/ghs_[A-Za-z0-9_]+/[redacted]/g' {} +
 
       # Private repos only. On a public repo, anyone signed in to GitHub can
       # download artifacts, and the transcript contains the unfiltered review
