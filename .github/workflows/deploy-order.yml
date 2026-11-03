@@ -1,0 +1,131 @@
+name: deploy-order
+
+# Reusable workflow. Callers use:
+#   uses: certible/.github/.github/workflows/deploy-order.yml@main
+#   secrets: inherit
+#
+# Runs on PRs to main (normally staging -> main). Reads the feature PRs that
+# were squash-merged into staging and are part of this PR. Each feature PR can
+# name dependencies in its description:
+#   Depends-On: certible/<repo>#<n>
+#   Depends-On: https://github.com/certible/<repo>/pull/<n>
+# The check fails until each referenced PR is in the default branch of its
+# repo. Rule for developers and agents: agents/pull-requests.md in certible/misc.
+
+on:
+  workflow_call:
+    secrets:
+      ORG_CI_READER_PRIVATE_KEY:
+        description: "Private key of the certible-ci-reader GitHub App."
+        required: true
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # All API calls use the read-only app token, also for this repository.
+      - uses: actions/create-github-app-token@v3
+        id: app
+        with:
+          client-id: ${{ vars.ORG_CI_READER_CLIENT_ID }}
+          private-key: ${{ secrets.ORG_CI_READER_PRIVATE_KEY }}
+          owner: certible
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Check Depends-On
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # inherit_errexit: a failed gh call in $(...) also stops the job, so
+          # an API error can never let the check pass.
+          set -euo pipefail
+          shopt -s inherit_errexit
+
+          # Feature PRs: merged PRs that contain a commit of this PR.
+          commits=$(gh api --paginate "repos/$REPO/pulls/$PR/commits" --jq '.[].sha')
+          # GitHub lists at most 250 commits of a PR. Fail instead of skipping some.
+          if [ "$(wc -l <<<"$commits")" -ge 250 ]; then
+            echo "::error::This PR has 250 or more commits. The check cannot read all feature PRs. Split the release or ask an org admin to bypass."
+            exit 1
+          fi
+          features=""
+          for sha in $commits; do
+            features+=$(gh api "repos/$REPO/commits/$sha/pulls" \
+              --jq ".[] | select(.number != $PR and .merged_at != null) | .number")$'\n'
+          done
+          features=$(sort -un <<<"$features")
+
+          failed=0
+          rows=""
+          for f in $features; do
+            # Strip HTML comments, so the PR template examples do not count.
+            body=$(gh api "repos/$REPO/pulls/$f" --jq '.body // ""')
+            refs=$(perl -0pe 's/<!--.*?-->//gs' <<<"$body" \
+              | { grep -iE '^[[:space:]]*Depends-On:' || true; } \
+              | sed -E 's/^[[:space:]]*[Dd][Ee][Pp][Ee][Nn][Dd][Ss]-[Oo][Nn]:[[:space:]]*//; s/[[:space:]]+$//')
+
+            while IFS= read -r ref; do
+              [ -z "$ref" ] && continue
+              if [[ "$ref" =~ ^certible/([A-Za-z0-9._-]+)#([0-9]+)$ ]] \
+                || [[ "$ref" =~ ^https://github\.com/certible/([A-Za-z0-9._-]+)/pull/([0-9]+) ]]; then
+                dep_repo="certible/${BASH_REMATCH[1]}"
+                dep_pr="${BASH_REMATCH[2]}"
+              else
+                rows+="| #$f | \`$ref\` | invalid reference |"$'\n'
+                failed=1
+                continue
+              fi
+
+              if ! dep=$(gh api "repos/$dep_repo/pulls/$dep_pr" --jq '{merged: (.merged_at != null), sha: .merge_commit_sha}' 2>/dev/null); then
+                rows+="| #$f | $dep_repo#$dep_pr | PR not found |"$'\n'
+                failed=1
+                continue
+              fi
+              if [ "$(jq -r .merged <<<"$dep")" != "true" ]; then
+                rows+="| #$f | $dep_repo#$dep_pr | not merged |"$'\n'
+                failed=1
+                continue
+              fi
+
+              sha=$(jq -r .sha <<<"$dep")
+              if [ "$dep_repo" = "$REPO" ]; then
+                # Same repo: the dependency must be in main or in this PR.
+                if grep -qx "$sha" <<<"$commits"; then
+                  rows+="| #$f | $dep_repo#$dep_pr | ok (in this PR) |"$'\n'
+                  continue
+                fi
+              fi
+              default=$(gh api "repos/$dep_repo" --jq .default_branch)
+              status=$(gh api "repos/$dep_repo/compare/$sha...$default" --jq .status)
+              if [ "$status" = "identical" ] || [ "$status" = "ahead" ]; then
+                rows+="| #$f | $dep_repo#$dep_pr | ok (in $default) |"$'\n'
+              else
+                rows+="| #$f | $dep_repo#$dep_pr | not in $default yet |"$'\n'
+                failed=1
+              fi
+            done <<<"$refs"
+          done
+
+          {
+            echo "## deploy-order"
+            if [ -z "$rows" ]; then
+              echo "No Depends-On lines in the feature PRs."
+            else
+              echo "| Feature PR | Depends-On | Result |"
+              echo "| --- | --- | --- |"
+              printf '%s' "$rows"
+            fi
+            if [ "$failed" = 1 ]; then
+              echo
+              echo "Deploy the missing PRs to their default branch first, then re-run this check."
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          exit "$failed"
