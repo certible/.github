@@ -5,6 +5,7 @@ name: ai-review
 #   secrets:
 #     ORG_ANTHROPIC_API_KEY: ${{ secrets.ORG_ANTHROPIC_API_KEY }}
 #     ORG_CI_READER_PRIVATE_KEY: ${{ secrets.ORG_CI_READER_PRIVATE_KEY }} # optional: related repos for review-cross-repo
+#     ORG_BOARD_TOKEN_READ: ${{ secrets.ORG_BOARD_TOKEN_READ }} # optional: board tickets for review-spec
 #
 # Reviews a PR against auto_review_base once when it is opened or marked
 # ready for review. Add the "ai-review" label to any PR to request a review.
@@ -41,6 +42,9 @@ on:
         required: true
       ORG_CI_READER_PRIVATE_KEY:
         description: "Private key of the certible-ci-reader GitHub App. Without it, the cross-repo reviewer gets no related repos."
+        required: false
+      ORG_BOARD_TOKEN_READ:
+        description: "Read-only API token for the internal board. Without it, the reviewers get no board tickets."
         required: false
 
 # Fixed for all callers. Change the models here, not in the calling repos.
@@ -83,6 +87,7 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       HAS_READER_KEY: ${{ secrets.ORG_CI_READER_PRIVATE_KEY != '' }}
+      HAS_BOARD_TOKEN: ${{ secrets.ORG_BOARD_TOKEN_READ != '' }}
 
     # Only the steps that need a secret get it. The pi step gets the API key
     # but no GitHub token; the gh steps get the GitHub token but no API key.
@@ -140,6 +145,48 @@ jobs:
           gh pr diff "$PR" -R "$REPO" > "$ctx/raw.diff"
           awk -f "$RUNNER_TEMP/harness/number-diff.awk" "$ctx/raw.diff" > "$ctx/pr.diff"
           echo "diff: $(wc -l < "$ctx/raw.diff") lines, issues: $(jq length "$ctx/issues.json"), earlier AI comments: $(jq length "$ctx/previous-review.json")"
+
+      # Board tickets for the spec: the task and card links to vars.ORG_BOARD_URL
+      # in the PR description. They go to issues.json in the issue format. Only on
+      # private repos, because a review on a public PR must not quote tickets.
+      # Old /cards/<id> links redirect to /tasks/<id> without auth.
+      - name: Fetch board tickets
+        if: github.event.repository.private && env.HAS_BOARD_TOKEN == 'true' && vars.ORG_BOARD_URL != ''
+        env:
+          BOARD_TOKEN: ${{ secrets.ORG_BOARD_TOKEN_READ }}
+          BOARD_URL: ${{ vars.ORG_BOARD_URL }}
+        run: |
+          set -euo pipefail
+          ctx="$RUNNER_TEMP/ctx"
+          board=${BOARD_URL%/}
+          max=3
+
+          links=$(jq -r '.body // ""' "$ctx/pr.json" | perl -0pe 's/<!--.*?-->//gs' \
+            | B="$board" perl -ne 'print "$&\n" while m{\Q$ENV{B}\E/(?:tasks|cards)/\d+}g' | awk '!seen[$0]++' | head -n "$max" || true)
+
+          tickets=()
+          for link in $links; do
+            id=""
+            case "$link" in
+              */tasks/*) id=${link##*/} ;;
+              */cards/*)
+                loc=$(curl -sS -o /dev/null -w '%{redirect_url}' "$link" || true)
+                [[ "$loc" =~ /tasks/([0-9]+)$ ]] && id=${BASH_REMATCH[1]} ;;
+            esac
+            task=""
+            if [ -n "$id" ]; then
+              task=$(curl -sSf -H "Authorization: Bearer $BOARD_TOKEN" "$board/api/v1/tasks/$id" || true)
+            fi
+            if [ -n "$task" ]; then
+              tickets+=("$(jq -c --arg url "$board/tasks/$id" '{number: .id, title, body: (.description // ""), url: $url}' <<<"$task")")
+            else
+              tickets+=("$(jq -cn --arg url "$link" '{url: $url, error: "could not fetch the board ticket"}')")
+            fi
+          done
+
+          printf '%s\n' "${tickets[@]}" | jq -s --slurpfile issues "$ctx/issues.json" '$issues[0] + map(select(. != null))' > "$ctx/issues.tmp"
+          mv "$ctx/issues.tmp" "$ctx/issues.json"
+          jq -c '[.[] | {url, error}]' "$ctx/issues.json"
 
       # Cross-repo context for review-cross-repo: the repos in the Depends-On and
       # Related lines of the PR description. Only on private repos, because a
@@ -303,9 +350,10 @@ jobs:
         if: always() && inputs.upload_transcript && github.event.repository.private && steps.pi.outputs.transcript != ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ORG_ANTHROPIC_API_KEY }}
+          BOARD_TOKEN: ${{ secrets.ORG_BOARD_TOKEN_READ }}
         run: |
           find "$RUNNER_TEMP/out" "$RUNNER_TEMP/ctx" -type f -exec \
-            perl -pi -e 's/\Q$ENV{ANTHROPIC_API_KEY}\E/[redacted]/g; s/sk-ant-[A-Za-z0-9_-]+/[redacted]/g; s/ghs_[A-Za-z0-9_]+/[redacted]/g' {} +
+            perl -pi -e 's/\Q$ENV{ANTHROPIC_API_KEY}\E/[redacted]/g; s/\Q$ENV{BOARD_TOKEN}\E/[redacted]/g if length $ENV{BOARD_TOKEN}; s/sk-ant-[A-Za-z0-9_-]+/[redacted]/g; s/ghs_[A-Za-z0-9_]+/[redacted]/g' {} +
 
       # Private repos only. On a public repo, anyone signed in to GitHub can
       # download artifacts, and the transcript contains the unfiltered review
