@@ -175,7 +175,7 @@ jobs:
             esac
             task=""
             if [ -n "$id" ]; then
-              task=$(curl -sSf -H "Authorization: Bearer $BOARD_TOKEN" "$board/api/v1/tasks/$id" || true)
+              task=$(curl -sSf -H "Authorization: Bearer $BOARD_TOKEN" "$board/api/v2/tasks/$id?format=markdown" || true)
             fi
             if [ -n "$task" ]; then
               tickets+=("$(jq -c --arg url "$board/tasks/$id" '{number: .id, title, body: (.description // ""), url: $url}' <<<"$task")")

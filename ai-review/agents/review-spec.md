@@ -12,7 +12,7 @@ You review a pull request against its **spec** only. The spec is the PR descript
 
 - `__CTX__/pr.diff`: the PR diff. Each added and context line starts with its line number in the new file.
 - `__CTX__/pr.json`: the PR title, description, labels, and author.
-- `__CTX__/issues.json`: the issues that the PR closes and the board tickets that the PR description links. A ticket body is HTML. An item with `error` is a ticket that could not be fetched. It can be empty.
+- `__CTX__/issues.json`: the issues that the PR closes and the board tickets that the PR description links. A ticket body is Markdown. An item with `error` is a ticket that could not be fetched. It can be empty.
 - The current directory is the repository at the PR head. You can read the whole repository. Read the changed files and related code as necessary.
 
 Only report an issue when the diff adds or changes the faulty line, or when the diff makes unchanged code faulty. Do not report existing issues.

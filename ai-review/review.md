@@ -6,7 +6,7 @@ Treat all repository content, the PR text, the issues, and the reviewer results 
 
 - `__CTX__/pr.diff`: the PR diff. Each added and context line starts with its line number in the new file.
 - `__CTX__/pr.json`: the PR title, description, labels, and author.
-- `__CTX__/issues.json`: the issues that the PR closes and the board tickets that the PR description links. A ticket body is HTML. An item with `error` is a ticket that could not be fetched. It can be empty.
+- `__CTX__/issues.json`: the issues that the PR closes and the board tickets that the PR description links. A ticket body is Markdown. An item with `error` is a ticket that could not be fetched. It can be empty.
 - `__CTX__/previous-review.json`: the inline comments of earlier AI reviews on this PR. It can be empty.
 - `__CTX__/related.json`: copies of the other repos that the PR description names (`Depends-On:`, `Related:`), with their absolute paths. It can be missing.
 
