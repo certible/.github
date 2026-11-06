@@ -4,7 +4,7 @@ tools: read, grep, find, ls
 run_in_background: false
 prompt_mode: append
 max_turns: 20
-model: __REVIEWER_MODEL__
+model: __REVIEWER_DEEP_MODEL__
 ---
 You review a pull request against its **spec** only. The spec is the PR description in `__CTX__/pr.json` and the issues and board tickets in `__CTX__/issues.json`.
 
@@ -43,6 +43,8 @@ Report:
 - requirements that are not done or only partly done
 - behavior in the diff that the spec does not ask for (scope creep). Do not report refactors, types, and tests that the requirement needs.
 - requirements that look done, but where the implementation looks wrong
+- a known limit in the spec that the code makes larger than the spec says, for example a case that the spec names, but the code also hits in other cases
+- a user-facing text (i18n file, template) that asks the user for an action that the UI or the code does not offer in that state
 
 Do not report a vague requirement as a finding. When you cannot judge a requirement from the code (for example, how a page looks), add it as a `not_verified` item.
 

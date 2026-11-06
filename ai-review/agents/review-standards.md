@@ -43,6 +43,7 @@ Also apply these smells. A documented rule of the repository always wins over a 
 
 - Mysterious Name: a name that does not tell what the code does or holds.
 - Duplicated Code: the same logic in more than one hunk or file of the change, or logic that an existing helper of the repository already does.
+- Exception: when the copies of Duplicated Code in the change already behave differently (other constants, names, or payload shapes), report it as a defect, not as a smell. Name the difference. The confidence cap does not apply.
 - Speculative Generality: abstractions, parameters, or hooks without a current need.
 - A comment that explains what the code does, not why.
 

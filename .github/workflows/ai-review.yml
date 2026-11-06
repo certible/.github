@@ -50,7 +50,8 @@ on:
 # Fixed for all callers. Change the models here, not in the calling repos.
 env:
   REVIEW_MODEL: claude-sonnet-5-5 # coordinator: runs the reviewers, verifies findings
-  REVIEWER_MODEL: claude-haiku-5-5 # the six reviewers
+  REVIEWER_MODEL: claude-haiku-5-5 # review-privacy, review-tests, review-standards, review-cross-repo
+  REVIEWER_DEEP_MODEL: claude-sonnet-5-5 # review-bugs, review-spec: they trace code outside the diff
   PI_VERSION: 1.4.0
   PI_SUBAGENTS_VERSION: 0.22.0
 
@@ -142,9 +143,12 @@ jobs:
           gh api --paginate "repos/$REPO/pulls/$PR/comments" \
             --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- ai-review -->"))) | {path, line, body}' \
             | jq -s . > "$ctx/previous-review.json"
+          gh api --paginate "repos/$REPO/pulls/$PR/comments" \
+            --jq '.[] | select(.body | contains("<!-- ai-review -->") | not) | {id, in_reply_to_id, user: .user.login, path, line: (.line // .original_line), body}' \
+            | jq -s . > "$ctx/review-threads.json"
           gh pr diff "$PR" -R "$REPO" > "$ctx/raw.diff"
           awk -f "$RUNNER_TEMP/harness/number-diff.awk" "$ctx/raw.diff" > "$ctx/pr.diff"
-          echo "diff: $(wc -l < "$ctx/raw.diff") lines, issues: $(jq length "$ctx/issues.json"), earlier AI comments: $(jq length "$ctx/previous-review.json")"
+          echo "diff: $(wc -l < "$ctx/raw.diff") lines, issues: $(jq length "$ctx/issues.json"), earlier AI comments: $(jq length "$ctx/previous-review.json"), comments of people: $(jq length "$ctx/review-threads.json")"
 
       # Board tickets for the spec: the task and card links to vars.ORG_BOARD_URL
       # in the PR description. They go to issues.json in the issue format. Only on
@@ -283,7 +287,7 @@ jobs:
           pi install "npm:@tintinweb/pi-subagents@$PI_SUBAGENTS_VERSION"
           mkdir -p "$PI_CODING_AGENT_DIR/agents"
           for f in "$RUNNER_TEMP"/harness/agents/*.md; do
-            sed -e "s|__REVIEWER_MODEL__|anthropic/$REVIEWER_MODEL|" -e "s|__CTX__|$RUNNER_TEMP/ctx|g" "$f" \
+            sed -e "s|__REVIEWER_MODEL__|anthropic/$REVIEWER_MODEL|" -e "s|__REVIEWER_DEEP_MODEL__|anthropic/$REVIEWER_DEEP_MODEL|" -e "s|__CTX__|$RUNNER_TEMP/ctx|g" "$f" \
               > "$PI_CODING_AGENT_DIR/agents/$(basename "$f")"
           done
           sed "s|__CTX__|$RUNNER_TEMP/ctx|g" "$RUNNER_TEMP/harness/review.md" > "$RUNNER_TEMP/prompt.md"
@@ -322,7 +326,7 @@ jobs:
 
       - name: Build review
         env:
-          MODEL: ${{ env.REVIEW_MODEL }} + ${{ env.REVIEWER_MODEL }}
+          MODEL: ${{ env.REVIEW_MODEL }} + ${{ env.REVIEWER_DEEP_MODEL }} + ${{ env.REVIEWER_MODEL }}
         run: |
           node "$RUNNER_TEMP/harness/post-review.mjs" "$RUNNER_TEMP/out/result.txt" "$RUNNER_TEMP/ctx/raw.diff" "$RUNNER_TEMP/out"
 
