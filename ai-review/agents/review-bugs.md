@@ -36,10 +36,13 @@ Do not test tools and do not make exploratory calls. Make a call only when it an
 Do this before you look for single defects.
 
 1. State the outcome that the spec expects in one line, for example "prod logs show an entry for X" or "the user can do Y". The spec is the PR description and the issues.
-2. For each function that the diff adds or changes, read every caller and every function that it calls, also when the diff does not change them.
-3. Follow each early return, guard, and flag on the path to the outcome. Name the state in which the outcome does not happen, for example a flag that another code path sets.
+2. For each function that the diff adds or changes, read every caller and every function that it calls, also when the diff does not change them. Read the full body of each called function in the repository, not only its name or signature.
+3. Follow each early return, guard, and flag on the path to the outcome. For each flag that a guard reads, `grep` for every place that sets it, and check if one of them is on a normal path (for example a config override or a user mode). Name the state in which the outcome does not happen.
 4. Check the order of state changes: state that is updated before a call that can return early.
 5. When the change writes the same data (a log entry, an event, a request) from more than one place, compare the copies. Report different names, payload shapes, or constants.
+6. For each listener, timer, interval, or subscription that the diff adds or changes, find the call that removes it. Check that the remove call gets the same function reference. Check what happens when the handler runs while a delayed action of the same change is still pending (for example a check that the change delays in one path but not in another).
+
+A trace with only a few file reads is not complete. Spend the tool calls on steps 2, 3, and 6 before you return.
 
 Report a path where the outcome does not happen as a bug. Name the state that triggers it.
 
